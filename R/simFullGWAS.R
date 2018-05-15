@@ -4,14 +4,15 @@ library(optparse)
 library(data.table)
 library(magrittr)
 
+## atm set to true untill fully validated
 TEST<-TRUE
 option_list = list(
-        make_option(c("-l", "--ldblock"), type="character", default=NULL,
-              help="ld block to process", metavar="character"),
+        #make_option(c("-l", "--ldblock"), type="character", default=NULL,
+        #      help="ld block to process", metavar="character"),
         make_option(c("-s", "--scenario_file"), type="character", default=NULL,
               help="scenario file to use", metavar="character"),
-        make_option(c("-o", "--out_dir"), type="character", default=NULL,
-              help="output directory", metavar="character"),
+        #make_option(c("-o", "--out_dir"), type="character", default=NULL,
+        #      help="output directory", metavar="character"),
         make_option(c("-b", "--ld_source"), type="character", default=NULL,
               help="ld block source to use one of jp_ld or hm_ld",metavar="character"),
         make_option(c("-n", "--nsim"), type="numeric", default=10,
@@ -22,10 +23,10 @@ if(!TEST){
   args = parse_args(opt_parser)
 }else{
   args <- list(
-      ldblock='77',
+      #ldblock='77',
       #scenario_file="/home/ob219/rds/hpc-work/simBasis/support/scenarios/scenario1.yml",
       scenario_file="/home/ob219/rds/hpc-work/simBasis/support/scenarios/scenario1_detec.yml",
-      out_dir="/home/ob219/rds/hpc-work/simBasis/simulations/",
+      #out_dir="/home/ob219/rds/hpc-work/simBasis/simulations/",
       ld_source='jp_ld',
       nsim=10
   )
@@ -41,12 +42,14 @@ library(simGWAS)
 library(cupcake)
 library(mvtnorm)
 library(yaml)
+library(ggplot2)
+library(cowplot)
 
 
 
 BCF_TOOLS='/usr/local/Cluster-Apps/bcftools/1.2/bin/bcftools'
-BCF_FILE='/home/ob219/rds/rds-cew54-wallace-share/Data/reference/UK10K/chr1.bcf.gz'
-SNP_SUPPORT='/home/ob219/rds/hpc-work/simBasis/support/chr1_maf_0.01_pCV.RDS'
+BCF_FILE='/rds/project/cew54/rds-cew54-wallace-share/Data/reference/UK10K/chr1.bcf.gz'
+SNP_SUPPORT='/rds/project/cew54/rds-cew54-wallace-share/Projects/simBasis/support/chr1_maf_0.01_pCV.RDS'
 # THIS DICTATES WHETHER WE DOWNSAMPLE SO THAT ONLY HAVE SNPS IN THE BASIS
 #AS_BASIS_FILTER=TRUE
 #OUT.DIR <- '/home/ob219/rds/hpc-work/simBasis/simulations/'
@@ -184,30 +187,6 @@ buildDT <- function(simlist,snp.DT){
   split(tmp.DT[,.(pid,or,p.value,trait,sim,n,n1,ld.block,maf)],tmp.DT$sim)
 }
 
-build_matrix_raw <- function(DT){
-  B <- dcast(DT,pid ~ trait,value.var='metric')
-  snames <- B[,1]$pid
-  tmp.mat <- as.matrix(B[,-1]) %>% t()
-  colnames(tmp.mat) <- snames
-  tmp.mat
-  #tmp.mat <- rbind(tmp.mat,control=rep(0,ncol(tmp.mat)))
-  #prcomp(tmp.mat,center=TRUE,scale=FALSE)
-}
-
-
-build_matrix_shrink <- function(bDT,sDT,vmethod){
-  message(sprintf("Using %s",vmethod))
-  stmp<-sDT[,c('pid',vmethod),with=FALSE]
-  tmp<-bDT[stmp]
-  tmp$metric <- tmp[[vmethod]] * log(tmp$or)
-  B <- dcast(tmp,pid ~ trait,value.var='metric')
-  snames <- B[,1]$pid
-  tmp.mat <- as.matrix(B[,-1]) %>% t()
-  colnames(tmp.mat) <- snames
-  tmp.mat
-  #tmp.mat <- rbind(tmp.mat,control=rep(0,ncol(tmp.mat)))
-  #prcomp(tmp.mat,center=TRUE,scale=FALSE)
-}
 
 
 snps <- readRDS(SNP_SUPPORT)
@@ -220,7 +199,7 @@ snps <- snps[get(`ld_source`) %in% use,]
 scen <- read_yaml(args$scenario_file)
 ## do simulations
 all.sims <- lapply(split(snps,snps[[ld_source]]),function(DT){
-  tmp <- simCVLDBlock(DT,scen,10)
+  tmp <- simCVLDBlock(DT,scen,args$nsim)
   names(tmp) <- names(scen)
   tmp
 })
@@ -234,31 +213,73 @@ proj.sims <- names(scen)[!(sapply(scen,'[[','basis'))]
 
 basis <- basis.sims
 proj <- proj.sims
-DT <- DT.sims[[1]]
 
-if(FALSE){
-## compute z values for qqplot
-DT[,z:=qnorm(p.value/2,lower.tail=FALSE) * sign(log(or))]
-DT[,pos:=as.numeric(sub("chr1:","",pid,fixed=TRUE))]
-## annotate causal variants for each study
-ggplot(DT[grep("GWAS10",trait),],aes(x=pos,y=z,col=CV)) + geom_point() + facet_wrap(~trait,ncol=1)
 
-DT[,CV:=FALSE]
 
-for(na in names(scen)){
-  message(na)
-  cvs <- scen[[na]]$CV
-  lds <- unique(snps[id %in% cvs,]$jp_ld)
-  DT[(ld.block %in%  lds) & trait==na,]$CV <- TRUE
+## test plotting code to check simulations make sense
+if(FALSE
+  DT <- DT.sims[[2]]
+  ## compute z values for qqplot
+  DT[,z:=qnorm(p.value/2,lower.tail=FALSE) * sign(log(or))]
+  DT[,pos:=as.numeric(sub("chr1:","",pid,fixed=TRUE))]
+  ## annotate causal variants for each study
+
+  DT[,CV:=FALSE]
+
+  for(na in names(scen)){
+    message(na)
+    cvs <- scen[[na]]$CV
+    lds <- unique(snps[id %in% cvs,]$jp_ld)
+    DT[(ld.block %in%  lds) & trait==na,]$CV <- TRUE
+  }
+
+  ## Manhattan
+  ggplot(DT[grep("GWAS10",trait),],aes(x=pos,y=z,col=CV)) +
+  geom_point() + facet_wrap(~trait,ncol=1) + geom_hline(yintercept=c(-log10(5e-8),log10(5e-8)),col='firebrick1',lty=2)
+
+  ## qqplot
+  colmat <- ifelse(DT[trait=="GWAS10",]$CV,'red','black')
+  qqnorm(DT[trait=="GWAS10",]$z,col=colmat)
+  #dcast(DT,pid~or+trait)
 }
 
-colmat <- ifelse(DT[trait=="GWAS10",]$CV,'red','black')
-qqnorm(DT[trait=="GWAS10",]$z,col=colmat)
-}
+
+## create a basis from a simulation and project on a set of linked GWAS scenarios
 
 createBasisAndProj<-function(DT,basis,proj){
   basis.idx <- which(DT$trait %in% basis)
   proj.idx <- which(DT$trait %in% proj)
+
+
+  ## helper func that build matrix for PC input where no shrinkage e.g. Z and beta
+
+  build_matrix_raw <- function(DT){
+    B <- dcast(DT,pid ~ trait,value.var='metric')
+    snames <- B[,1]$pid
+    tmp.mat <- as.matrix(B[,-1]) %>% t()
+    colnames(tmp.mat) <- snames
+    tmp.mat
+    #tmp.mat <- rbind(tmp.mat,control=rep(0,ncol(tmp.mat)))
+    #prcomp(tmp.mat,center=TRUE,scale=FALSE)
+  }
+
+
+  ## helper func that build matrix for PC input where some weighting shrinkage is involved
+
+  build_matrix_shrink <- function(bDT,sDT,vmethod){
+    message(sprintf("Using %s",vmethod))
+    stmp<-sDT[,c('pid',vmethod),with=FALSE]
+    tmp<-bDT[stmp]
+    tmp$metric <- tmp[[vmethod]] * log(tmp$or)
+    B <- dcast(tmp,pid ~ trait,value.var='metric')
+    snames <- B[,1]$pid
+    tmp.mat <- as.matrix(B[,-1]) %>% t()
+    colnames(tmp.mat) <- snames
+    tmp.mat
+    #tmp.mat <- rbind(tmp.mat,control=rep(0,ncol(tmp.mat)))
+    #prcomp(tmp.mat,center=TRUE,scale=FALSE)
+  }
+
   ## beta
   RES <- list()
   doRAW <- function(){
@@ -293,7 +314,69 @@ createBasisAndProj<-function(DT,basis,proj){
 }
 
 stop()
-sim1 <- createBasisAndProj(DT.sims[[1]],basis.sims,proj.sims)
+
+# code to plot bi plots for an example simulation to check things
+
+if(FALSE){
+  library(data.table)
+  library(magrittr)
+
+  sim1 <- createBasisAndProj(DT.sims[[1]],basis.sims,proj.sims)
+
+  biplot.DT <- lapply(names(sim1),function(n){
+    S<-sim1[[n]]
+    tDT <- data.table(rbind(S$basis$x,S$proj))
+    tDT[,trait:=c(rownames(S$basis$x),rownames(S$proj))]
+    tDT[,metric:=n]
+    tDT
+  }) %>% rbindlist
+
+  library(ggrepel)
+
+  ggplot(biplot.DT,aes(x=PC1,y=PC2,label=trait)) + geom_point() + geom_text_repel() + facet_wrap(~metric)
+}
+
+## create distance metrics
+
+getDist <- function(S,ref='control'){
+  R <- S$basis$x[ref,]
+  tDT <- data.table(reference=ref,t(apply(S$proj,1,function(x) sqrt(sum((x - R)^2)))))
+}
+
+## compute dist matrix for all simulations considered
+dist.res <- lapply(DT.sims,function(db){
+  ts <- createBasisAndProj(db,basis.sims,proj.sims)
+  ctres <- lapply(ts,getDist) %>% rbindlist
+  ctres[,metric:=names(ts)]
+  ares <- lapply(ts,getDist,'GWAS10') %>% rbindlist
+  ares[,metric:=names(ts)]
+  rbind(ctres,ares)
+})
+
+
+all.distances <- rbindlist(dist.res)
+
+mall <- melt(all.distances,id.vars=c('metric','reference'))
+
+mall[,scale.value:=scale(value),by=c('reference','metric')]
+
+mall[,variable:=factor(variable,levels=c('GWAS10_500_3000','GWAS10_2000_2000','GWAS10_5000_5000','share_500_3000','share_2000_2000','share_5000_5000','random_500_3000','random_2000_2000','random_5000_5000'))]
+
+
+pp<-ggplot(mall,aes(x=variable,y=value,col=reference)) + geom_boxplot() +
+facet_wrap(~metric,scale="free",ncol=4) + theme(axis.text.x=element_text(angle = -90, hjust = 0))
+
+pb<-ggplot(mall,aes(x=variable,y=scale.value,col=reference)) + geom_boxplot() +
+facet_wrap(~metric,scale="free",ncol=4) + theme(axis.text.x=element_text(angle = -90, hjust = 0))
+
+
+
+
+stop()
+
+
+## BELOW HERE IS EXPERIMENTAL CODE FOR malhalanobis distance stuff.
+
 
 ## I think that this is equivalent to the malhalanobis distance
 ## here we multiply the loading for a given axis by the variance explained by that

@@ -4,10 +4,11 @@ library(data.table)
 library(yaml)
 library(magrittr)
 
-YAML.DIR <- '/home/ob219/rds/hpc-work/simBasis/support/scenarios'
+## change this
+YAML.DIR <- '/home/ob219/rds/rds-cew54-wallace-share/Projects/simBasis/scenarios'
 
 source <- 'jp_ld'
-snps <- readRDS("/home/ob219/rds/hpc-work/simBasis/support/chr1_maf_0.01_pCV.RDS")
+snps <- readRDS("/home/ob219/rds/rds-cew54-wallace-share/Projects/simBasis/support/chr1_maf_0.01_pCV.RDS")
 ## check to see if there are any ld blocks that have no basis snps in as we don't
 ## need to simulate these
 use <- snps[,list(has_asb=any(asb)),by=`source`][has_asb==TRUE,][[source]]
