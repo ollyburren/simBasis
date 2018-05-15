@@ -25,7 +25,7 @@ if(!TEST){
   args <- list(
       #ldblock='77',
       #scenario_file="/home/ob219/rds/hpc-work/simBasis/support/scenarios/scenario1.yml",
-      scenario_file="/home/ob219/rds/hpc-work/simBasis/support/scenarios/scenario1_detec.yml",
+      scenario_file="/rds/project/cew54/rds-cew54-wallace-share/Projects/simBasis/scenarios/scenario1_detec.yml",
       #out_dir="/home/ob219/rds/hpc-work/simBasis/simulations/",
       ld_source='jp_ld',
       nsim=10
