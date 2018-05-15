@@ -1,0 +1,25 @@
+- global:
+  ld.file: /home/ob219/rds/rds-cew54-wallace-share/Data/reference/lddetect/EUR/fourier_ls-chr1.bed
+  bcf.file:
+
+- disease: 1
+  is.basis: Y
+  causal.variants:
+    - 1:12345-5678
+    - 3:4536435-1231231
+  effect.sizes:
+    - 1.2
+    - 1.2
+  cases: 1000
+  controls: 1000
+
+- disease: 1
+  is.basis: Y
+  causal.variants:
+    - 1:12345-5678
+    - 3:4536435-1231231
+  effect.sizes:
+    - 1.2
+    - 1.2
+  cases: 1000
+  controls: 1000
