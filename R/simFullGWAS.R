@@ -1,39 +1,49 @@
 ## simGWAS helper functions
 
 library(optparse)
-library(data.table)
-library(magrittr)
+
 
 ## atm set to true untill fully validated
-TEST<-TRUE
+TEST<-FALSE
+
 option_list = list(
-        #make_option(c("-l", "--ldblock"), type="character", default=NULL,
-        #      help="ld block to process", metavar="character"),
         make_option(c("-s", "--scenario_file"), type="character", default=NULL,
-              help="scenario file to use", metavar="character"),
-        #make_option(c("-o", "--out_dir"), type="character", default=NULL,
-        #      help="output directory", metavar="character"),
-        make_option(c("-b", "--ld_source"), type="character", default=NULL,
+            help="scenario file to use", metavar="character"),
+        make_option(c("-o", "--out_dir"), type="character", default=NULL,
+                help="where to put plots and source data generated", metavar="character"),
+        make_option(c("-b", "--ld_source"), type="character", default='jp_ld',
               help="ld block source to use one of jp_ld or hm_ld",metavar="character"),
-        make_option(c("-n", "--nsim"), type="numeric", default=10,
+        make_option(c("-n", "--nsim"), type="numeric", default=100,
               help="Number of simulations to run",metavar="numeric")
-        )
+)
+
+
 if(!TEST){
   opt_parser = OptionParser(option_list=option_list);
   args = parse_args(opt_parser)
 }else{
   args <- list(
+      out_dir="/home/ob219/tmp/test_scen",
       #ldblock='77',
       #scenario_file="/home/ob219/rds/hpc-work/simBasis/support/scenarios/scenario1.yml",
-      scenario_file="/rds/project/cew54/rds-cew54-wallace-share/Projects/simBasis/scenarios/scenario1_detec.yml",
+      scenario_file="/rds/project/cew54/rds-cew54-wallace-share/Projects/simBasis/scenarios//no_share.yml",
+      #scenario_file="/rds/project/cew54/rds-cew54-wallace-share/Projects/simBasis/scenarios/scenario2.yml",
       #out_dir="/home/ob219/rds/hpc-work/simBasis/simulations/",
       ld_source='jp_ld',
-      nsim=10
+      nsim=100
   )
 }
 
 print(args)
 
+if(file.exists(args$out_dir)){
+  out.file.stub <- file.path(args$out_dir,gsub(".yml","",basename(args$scenario_file)))
+}else{
+  stop(sprintf("out_dir %s does not exist",args$out_dir))
+}
+
+
+library(magrittr)
 library(data.table)
 library(devtools)
 install_github("chr1swallace/simGWAS")
@@ -44,6 +54,7 @@ library(mvtnorm)
 library(yaml)
 library(ggplot2)
 library(cowplot)
+library(latex2exp)
 
 
 
@@ -199,6 +210,7 @@ snps <- snps[get(`ld_source`) %in% use,]
 scen <- read_yaml(args$scenario_file)
 ## do simulations
 all.sims <- lapply(split(snps,snps[[ld_source]]),function(DT){
+  message(sprintf("Processing %d",unique(DT[[ld_source]])))
   tmp <- simCVLDBlock(DT,scen,args$nsim)
   names(tmp) <- names(scen)
   tmp
@@ -217,7 +229,7 @@ proj <- proj.sims
 
 
 ## test plotting code to check simulations make sense
-if(FALSE
+if(FALSE){
   DT <- DT.sims[[2]]
   ## compute z values for qqplot
   DT[,z:=qnorm(p.value/2,lower.tail=FALSE) * sign(log(or))]
@@ -234,8 +246,16 @@ if(FALSE
   }
 
   ## Manhattan
-  ggplot(DT[grep("GWAS10",trait),],aes(x=pos,y=z,col=CV)) +
+  DT[,trait:=factor(trait,levels=paste('GWAS',1:10,sep=''))]
+  ggplot(DT[grep("^GWAS[0-9]+$",trait),],aes(x=pos,y=z,col=CV)) +
   geom_point() + facet_wrap(~trait,ncol=1) + geom_hline(yintercept=c(-log10(5e-8),log10(5e-8)),col='firebrick1',lty=2)
+
+
+  ggplot(DT[-grep("^GWAS[2-9]$",trait),],aes(x=pos,y=z,col=CV)) +
+  geom_point() + facet_wrap(~trait,ncol=1) + geom_hline(yintercept=c(-log10(5e-8),log10(5e-8)),col='firebrick1',lty=2)
+
+
+
 
   ## qqplot
   colmat <- ifelse(DT[trait=="GWAS10",]$CV,'red','black')
@@ -306,14 +326,14 @@ createBasisAndProj<-function(DT,basis,proj){
     pc <- prcomp(b,center=TRUE,scale=FALSE)
     list(basis=pc,proj=predict(pc,newdata=build_matrix_shrink(DT[proj.idx,],shrink.DT,metric)))
   }
-  metrics <- c('r_est_maf_se','r_emp_maf_se','est_shrinkage','emp_shrinkage','ws_est_shrinkage','ws_emp_shrinkage')
+  #metrics <- c('r_est_maf_se','r_emp_maf_se','est_shrinkage','emp_shrinkage','ws_est_shrinkage','ws_emp_shrinkage')
+  metrics <- c('r_emp_maf_se','emp_shrinkage','ws_emp_shrinkage')
   for(m in metrics){
     RES[[m]] <- doSHRINK(m)
   }
   return(RES)
 }
 
-stop()
 
 # code to plot bi plots for an example simulation to check things
 
@@ -358,21 +378,45 @@ all.distances <- rbindlist(dist.res)
 
 mall <- melt(all.distances,id.vars=c('metric','reference'))
 
-mall[,scale.value:=scale(value),by=c('reference','metric')]
+#mall[,scale.value:=scale(value),by=c('reference','metric')]
 
-mall[,variable:=factor(variable,levels=c('GWAS10_500_3000','GWAS10_2000_2000','GWAS10_5000_5000','share_500_3000','share_2000_2000','share_5000_5000','random_500_3000','random_2000_2000','random_5000_5000'))]
-
-
-pp<-ggplot(mall,aes(x=variable,y=value,col=reference)) + geom_boxplot() +
-facet_wrap(~metric,scale="free",ncol=4) + theme(axis.text.x=element_text(angle = -90, hjust = 0))
-
-pb<-ggplot(mall,aes(x=variable,y=scale.value,col=reference)) + geom_boxplot() +
-facet_wrap(~metric,scale="free",ncol=4) + theme(axis.text.x=element_text(angle = -90, hjust = 0))
+mall[,variable:=factor(variable,levels=c('GWAS10_500_3000','GWAS10_2000_2000',
+'GWAS10_5000_5000','share_500_3000','share_2000_2000',
+'share_5000_5000','random_500_3000','random_2000_2000','random_5000_5000'))]
 
 
 
+#mall[metric=='beta',metric:=latex2exp("$\beta")]
 
-stop()
+metric_names <- c(
+TeX('$\\hat{\\beta}$'),
+  TeX('$\\hat{\\gamma}$'),
+  TeX('$Z$'),
+  #TeX('$\\hat{\\gamma}_{SS}$'),
+  #TeX('$\\hat{\\gamma}_{MAF}$'),
+  TeX('Method 1'),
+  #TeX('Method1$_{SS}$'),
+  #TeX('Method1$_{MAF}$'),
+  TeX('Method 2')
+  #TeX('Method2$_{SS}$'),
+  #TeX('Method2$_{MAF}$')
+)
+
+mall[,metric:=factor(metric,levels=c('beta','r_emp_maf_se','z','emp_shrinkage','ws_emp_shrinkage'),labels=metric_names)]
+mall[,variable:=factor(gsub("_"," ",as.character(variable)),levels=gsub("_"," ",levels(variable)))]
+
+
+pp <- ggplot(mall,aes(x=variable,y=value,col=reference)) + geom_boxplot() +
+facet_wrap( ~ metric,scale="free",ncol=3,labeller = label_parsed) +
+xlab("Scenario") + ylab("Distance") +
+theme(axis.text.x=element_text(angle = -90, hjust = 0,vjust=0.5),
+strip.background =element_rect(fill="grey95")) +
+scale_colour_manual("Origin",values=c("control"="steelblue1","GWAS10"="firebrick1"),labels=c('Control','GWAS10')) +
+background_grid(major = "xy", minor = "none")
+save_plot(paste(out.file.stub,'pdf',sep="."),pp,base_height=10,base_width=10)
+#save_plot(paste(out.file.stub,'scale','pdf',sep="."),pb,base_height=10,base_width=10)
+saveRDS(mall,file=paste(out.file.stub,'RDS',sep="."))
+
 
 
 ## BELOW HERE IS EXPERIMENTAL CODE FOR malhalanobis distance stuff.
@@ -380,6 +424,8 @@ stop()
 
 ## I think that this is equivalent to the malhalanobis distance
 ## here we multiply the loading for a given axis by the variance explained by that
+
+if(FALSE){
 
 mahalanobis_pairwise<-function(pc,proj){
   ## add in zero for mahalanobis distance
@@ -406,125 +452,4 @@ mahalanobis_pairwise<-function(pc,proj){
 ## see code in mahalanobis.R for an explanation
 mahalanobis_pairwise(sim1$emp_shrinkage$basis,sim1$emp_shrinkage$proj)
 
-
-## check to see what is going on using a biplot
-
-pd <- lapply(names(sim1),function(n){
-  D <- sim1[[n]]
-  m <- rbind(D$basis$x,D$proj)
-  m.DT <- data.table(trait=rownames(m),m)
-  m.DT[,stat:=n]
-}) %>% rbindlist
-
-library(ggrepel)
-pd.f <- pd[grep("GWAS",trait),]
-ggplot(pd.f[grep("emp_shrinkage",stat),],aes(x=PC1,y=PC2,label=trait)) + geom_point() + geom_text_repel() + facet_wrap(~stat,scales="free")
-
-
-ggplot(pd[stat=='ws_emp_shrinkage',],aes(x=PC1,y=PC2,label=trait)) + geom_point() + geom_text_repel()
-
-## beta
-
-test[,metric:=log(or)]
-pc.beta <- build_pca_special(test)
-
-## z
-
-test[,metric:=sign(log(or)) * qnorm(p.value/2,lower.tail=FALSE)]
-pc.z <- build_pca_special(test)
-
-## these need the shrinkage
-
-shrink.DT <- cupcake::compute_shrinkage_metrics(test)
-shrink.DT[,c('r_emp_maf_se','r_est_maf_se'):=list(1/emp_maf_se,1/est_maf_se)]
-setkey(shrink.DT,'pid')
-
-# here e is for estimated a is for actual - empirical version
-
-## gamma hat using analytical estimate MAF SE
-
-pc.e.ghat <- build_pca_shrink(test,shrink.DT,'r_est_maf_se')
-
-## gamma hat using empirical MAF SE
-
-pc.a.ghat <- build_pca_shrink(test,shrink.DT,'r_emp_maf_se')
-
-## shrinkage 1  using analytical estimate MAF SE
-
-pc.e.sh1 <- build_pca_shrink(test,shrink.DT,'est_shrinkage')
-
-## shrinkage 1 using empirical MAF SE
-
-pc.a.sh1 <- build_pca_shrink(test,shrink.DT,'emp_shrinkage')
-
-## shrinkage 2 using analytical estimate MAF SE
-
-pc.e.sh2 <- build_pca_shrink(test,shrink.DT,'ws_est_shrinkage')
-
-## shrinkage 2 using empirical MAF SE
-
-pc.a.sh2 <- build_pca_shrink(test,shrink.DT,'ws_emp_shrinkage')
-
-
-## see how this looks
-
-
-
-## beta
-
-create_ds_matrix <- function(bDT,sDT,method=c('emp','est','memp','mest')){
-  if(missing(method)){
-    method='emp'
-  }
-  message(sprintf("Using %s",method))
-  vmethod = sprintf("%s_shrinkage",method)
-  stmp<-sDT[,c('pid',vmethod),with=FALSE]
-  tmp<-bDT[stmp]
-  tmp$metric <- tmp[[vmethod]] * log(tmp$or)
-  B <- dcast(tmp,pid ~ trait,value.var='metric')
-  snames <- B[,1]$pid
-  tmp.mat <- as.matrix(B[,-1]) %>% t()
-  colnames(tmp.mat) <- snames
-  return(tmp.mat)
 }
-
-
-buildBasis <- function(pno){
-  tmp.DT <- lapply(names(all.sims),function(bname){
-    b <- all.sims[[bname]]
-    lapply(names(b),function(gw){
-
-      s <- b[[gw]]
-      or <- exp(s[['beta']][,pno])
-      p <- pnorm(abs(s[['z']][,pno]),lower.tail=FALSE) * 2
-      pid <- s[['snps']]
-      n <- s$N1 + s$N0
-      data.table(pid=pid,or=or,p.value=p,trait=gw,n=n,n1=s$N1,ld.block=as.numeric(bname))
-    }) %>% rbindlist
-  }) %>% rbindlist
-  ## need to add MAF
-  setkey(tmp.DT,pid)
-  basis.DT <- tmp.DT[maf.DT]
-  shrink.DT<-cupcake::compute_shrinkage_metrics(basis.DT)
-  basis.mat.emp <- cupcake::create_ds_matrix(basis.DT,shrink.DT)
-  basis.mat.emp<-rbind(basis.mat.emp,control=rep(0,ncol(basis.mat.emp)))
-  prcomp(basis.mat.emp,center=TRUE,scale=FALSE)
-}
-
-
-## this unpacks as a long list
-pd <- lapply(all.sims,function(b){
-  lapply(names(b),function(gw){
-    s <- b[[gw]]
-    tmp <- data.table(gwas=gw,variant=s[['snps']],mlp=-log10(pnorm(abs(s[['z']][,1]),lower.tail=FALSE) * 2))
-    tmp[,CV:=variant %in% s$cv]
-  }) %>% rbindlist
-}) %>% rbindlist
-
-pd[,pos:=as.numeric(sub("chr1:","",variant,fixed=TRUE))]
-
-library(ggplot2)
-ggplot(pd,aes(x=pos,y=mlp)) + geom_point()  +
-geom_vline(data=cv,aes(xintercept=as.numeric(pos))) + facet_wrap(~gwas,ncol=1)
-
-lapply(all.sims)

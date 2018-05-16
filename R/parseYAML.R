@@ -12,6 +12,7 @@ install_github("chr1swallace/simGWAS")
 library(simGWAS)
 library(mvtnorm)
 library(corpcor)
+library(magrittr)
 
 BCF_TOOLS='/usr/local/Cluster-Apps/bcftools/1.2/bin/bcftools'
 BCF_FILE='/home/ob219/rds/rds-cew54-wallace-share/Data/reference/UK10K/chr1.bcf.gz'

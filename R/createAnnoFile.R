@@ -47,3 +47,4 @@ snps <- snps[,.(start,MAF,jp_ld,hm_ld,asb,id)]
 ## as_basis[!position %in% snps$start,]
 
 saveRDS(snps,"/home/ob219/rds/hpc-work/simBasis/support/chr1.RDS")
+saveRDS(snps[MAF>0.01,],"/home/ob219/rds/hpc-work/simBasis/support/chr1_maf_0.01.RDS")
