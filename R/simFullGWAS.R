@@ -1,6 +1,7 @@
 ## simGWAS helper functions
 
 library(optparse)
+library(magrittr)
 
 
 ## atm set to true untill fully validated
@@ -14,7 +15,9 @@ option_list = list(
         make_option(c("-b", "--ld_source"), type="character", default='jp_ld',
               help="ld block source to use one of jp_ld or hm_ld",metavar="character"),
         make_option(c("-n", "--nsim"), type="numeric", default=100,
-              help="Number of simulations to run",metavar="numeric")
+              help="Number of simulations to run",metavar="numeric"),
+        make_option(c("-p", "--prefix"), action="store_true", default=FALSE,
+              help="prefix to add to output files, automatically turns off plotting",metavar="numeric")
 )
 
 
@@ -26,24 +29,32 @@ if(!TEST){
       out_dir="/home/ob219/tmp/test_scen",
       #ldblock='77',
       #scenario_file="/home/ob219/rds/hpc-work/simBasis/support/scenarios/scenario1.yml",
-      scenario_file="/rds/project/cew54/rds-cew54-wallace-share/Projects/simBasis/scenarios//no_share.yml",
+      scenario_file="/rds/project/cew54/rds-cew54-wallace-share/Projects/simBasis/scenarios//backbone_share.yml",
       #scenario_file="/rds/project/cew54/rds-cew54-wallace-share/Projects/simBasis/scenarios/scenario2.yml",
       #out_dir="/home/ob219/rds/hpc-work/simBasis/simulations/",
       ld_source='jp_ld',
-      nsim=100
+      nsim=100,
+      prefix=FALSE
   )
 }
 
 print(args)
 
+PLOT <- TRUE
+ofile <- gsub(".yml","",basename(args$scenario_file))
+if(args$prefix){
+  PLOT <- FALSE
+  PREFIX <- sample(letters,6) %>% paste(.,collapse="")
+  ofile <- paste(PREFIX,ofile,sep='_')
+}
+
 if(file.exists(args$out_dir)){
-  out.file.stub <- file.path(args$out_dir,gsub(".yml","",basename(args$scenario_file)))
+  out.file.stub <- file.path(args$out_dir,ofile)
 }else{
   stop(sprintf("out_dir %s does not exist",args$out_dir))
 }
 
 
-library(magrittr)
 library(data.table)
 library(devtools)
 install_github("chr1swallace/simGWAS")
@@ -113,7 +124,7 @@ cor2 <- function (x) {
 
 
 vbeta <- function(N0,N1,f){
-  sqrt(1/2) * sqrt((N0+N1)/(N0*N1)) * sqrt(1/f + 1/1-f)
+  sqrt(1/2) * sqrt((N0+N1)/(N0*N1)) * sqrt(1/f + 1/(1-f))
 }
 
 #scenario is a list of CV and their associated effect sizes
@@ -229,8 +240,8 @@ proj <- proj.sims
 
 
 ## test plotting code to check simulations make sense
-if(FALSE){
-  DT <- DT.sims[[2]]
+if(PLOT){
+  DT <- DT.sims[[1]]
   ## compute z values for qqplot
   DT[,z:=qnorm(p.value/2,lower.tail=FALSE) * sign(log(or))]
   DT[,pos:=as.numeric(sub("chr1:","",pid,fixed=TRUE))]
@@ -247,19 +258,16 @@ if(FALSE){
 
   ## Manhattan
   DT[,trait:=factor(trait,levels=paste('GWAS',1:10,sep=''))]
-  ggplot(DT[grep("^GWAS[0-9]+$",trait),],aes(x=pos,y=z,col=CV)) +
-  geom_point() + facet_wrap(~trait,ncol=1) + geom_hline(yintercept=c(-log10(5e-8),log10(5e-8)),col='firebrick1',lty=2)
+  tp <- ggplot(DT[grep("^GWAS[0-9]+$",trait),],aes(x=pos,y=z,col=CV)) +
+  geom_point() + facet_wrap(~trait,ncol=1) +
+  geom_hline(yintercept=c(-log10(5e-8),log10(5e-8)),col='firebrick1',lty=2)
+  save_plot(paste(out.file.stub,'design','pdf',sep="."),tp,base_height=10,base_width=10)
 
-
-  ggplot(DT[-grep("^GWAS[2-9]$",trait),],aes(x=pos,y=z,col=CV)) +
-  geom_point() + facet_wrap(~trait,ncol=1) + geom_hline(yintercept=c(-log10(5e-8),log10(5e-8)),col='firebrick1',lty=2)
-
-
-
-
+  #ggplot(DT[-grep("^GWAS[2-9]$",trait),],aes(x=pos,y=z,col=CV)) +
+  #geom_point() + facet_wrap(~trait,ncol=1) + geom_hline(yintercept=c(-log10(5e-8),log10(5e-8)),col='firebrick1',lty=2)
   ## qqplot
-  colmat <- ifelse(DT[trait=="GWAS10",]$CV,'red','black')
-  qqnorm(DT[trait=="GWAS10",]$z,col=colmat)
+  #colmat <- ifelse(DT[trait=="GWAS10",]$CV,'red','black')
+  #qqnorm(DT[trait=="GWAS10",]$z,col=colmat)
   #dcast(DT,pid~or+trait)
 }
 
@@ -405,17 +413,36 @@ TeX('$\\hat{\\beta}$'),
 mall[,metric:=factor(metric,levels=c('beta','r_emp_maf_se','z','emp_shrinkage','ws_emp_shrinkage'),labels=metric_names)]
 mall[,variable:=factor(gsub("_"," ",as.character(variable)),levels=gsub("_"," ",levels(variable)))]
 
-
-pp <- ggplot(mall,aes(x=variable,y=value,col=reference)) + geom_boxplot() +
-facet_wrap( ~ metric,scale="free",ncol=3,labeller = label_parsed) +
-xlab("Scenario") + ylab("Distance") +
-theme(axis.text.x=element_text(angle = -90, hjust = 0,vjust=0.5),
-strip.background =element_rect(fill="grey95")) +
-scale_colour_manual("Origin",values=c("control"="steelblue1","GWAS10"="firebrick1"),labels=c('Control','GWAS10')) +
-background_grid(major = "xy", minor = "none")
-save_plot(paste(out.file.stub,'pdf',sep="."),pp,base_height=10,base_width=10)
-#save_plot(paste(out.file.stub,'scale','pdf',sep="."),pb,base_height=10,base_width=10)
+if(PLOT){
+  pp <- ggplot(mall,aes(x=variable,y=value,col=reference)) + geom_boxplot() +
+  facet_wrap( ~ metric,scale="free",ncol=3,labeller = label_parsed) +
+  xlab("Scenario") + ylab("Distance") +
+  theme(axis.text.x=element_text(angle = -90, hjust = 0,vjust=0.5),
+  strip.background =element_rect(fill="grey95")) +
+  scale_colour_manual("Origin",values=c("control"="steelblue1","GWAS10"="firebrick1"),labels=c('Control','GWAS10')) +
+  background_grid(major = "xy", minor = "none")
+  save_plot(paste(out.file.stub,'pdf',sep="."),pp,base_height=10,base_width=10)
+  #save_plot(paste(out.file.stub,'scale','pdf',sep="."),pb,base_height=10,base_width=10)
+}
 saveRDS(mall,file=paste(out.file.stub,'RDS',sep="."))
+
+## code for running on the Q
+if(FALSE){
+  SCEN.DIR <- '/rds/project/cew54/rds-cew54-wallace-share/Projects/simBasis/scenarios'
+  TOTAL <- 1000
+  BATCH <- 100
+  OUT_DIR <- '/home/ob219/tmp/test_scen/'
+
+  n <- TOTAL/BATCH
+
+  cmd <- sapply(list.files(path=SCEN.DIR,pattern="*.yml",full.names=TRUE),function(f){
+    sapply(1:n,function(i){
+      sprintf("Rscript /home/ob219/git/simBasis/R/simFullGWAS.R -s %s -o %s -n %d -p",f,OUT_DIR,BATCH)
+    })
+  })
+
+  write(cmd,file="/home/ob219/git/simBasis/sh/scen.txt")
+}
 
 
 
