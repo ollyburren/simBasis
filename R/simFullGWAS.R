@@ -227,6 +227,8 @@ all.sims <- lapply(split(snps,snps[[ld_source]]),function(DT){
   tmp
 })
 
+
+
 ## build data structure for basis generation
 DT.sims<-buildDT(all.sims,snps)
 basis.sims <- names(scen)[(sapply(scen,'[[','basis'))]
@@ -294,11 +296,25 @@ createBasisAndProj<-function(DT,basis,proj){
 
   ## helper func that build matrix for PC input where some weighting shrinkage is involved
 
-  build_matrix_shrink <- function(bDT,sDT,vmethod){
+  build_matrix_shrink_beta <- function(bDT,sDT,vmethod){
     message(sprintf("Using %s",vmethod))
     stmp<-sDT[,c('pid',vmethod),with=FALSE]
     tmp<-bDT[stmp]
     tmp$metric <- tmp[[vmethod]] * log(tmp$or)
+    B <- dcast(tmp,pid ~ trait,value.var='metric')
+    snames <- B[,1]$pid
+    tmp.mat <- as.matrix(B[,-1]) %>% t()
+    colnames(tmp.mat) <- snames
+    tmp.mat
+    #tmp.mat <- rbind(tmp.mat,control=rep(0,ncol(tmp.mat)))
+    #prcomp(tmp.mat,center=TRUE,scale=FALSE)
+  }
+
+  build_matrix_shrink_z <- function(bDT,sDT,vmethod){
+    message(sprintf("Using %s",vmethod))
+    stmp<-sDT[,c('pid',vmethod),with=FALSE]
+    tmp<-bDT[stmp]
+    tmp$metric <- tmp[[vmethod]] * tmp$z
     B <- dcast(tmp,pid ~ trait,value.var='metric')
     snames <- B[,1]$pid
     tmp.mat <- as.matrix(B[,-1]) %>% t()
@@ -321,23 +337,41 @@ createBasisAndProj<-function(DT,basis,proj){
   DT[,metric:=log(or)]
   RES[['beta']] <- doRAW()
   DT[,metric:=sign(log(or)) * qnorm(p.value/2,lower.tail=FALSE)]
+  #copy z score as we need it later !
+  DT[,z:=metric]
   RES[['z']] <- doRAW()
   ## compute the shrinkage
   shrink.DT <- cupcake::compute_shrinkage_metrics(DT[basis.idx,])
   shrink.DT[,c('r_emp_maf_se','r_est_maf_se'):=list(1/emp_maf_se,1/est_maf_se)]
+  shrink.DT[,'shrinkage_nog':=bshrink,by=pid]
+  shrink.DT[,'ws_shrinkage_nog':=ws_ppi,by=pid]
   setkey(shrink.DT,'pid')
-  doSHRINK <- function(metric){
-    b <- build_matrix_shrink(DT[basis.idx,],shrink.DT,metric)
+  doSHRINKBeta <- function(metric){
+    b <- build_matrix_shrink_beta(DT[basis.idx,],shrink.DT,metric)
     ## add control
     b <- rbind(b,control=rep(0,ncol(b)))
     ## build basis
     pc <- prcomp(b,center=TRUE,scale=FALSE)
-    list(basis=pc,proj=predict(pc,newdata=build_matrix_shrink(DT[proj.idx,],shrink.DT,metric)))
+    list(basis=pc,proj=predict(pc,newdata=build_matrix_shrink_beta(DT[proj.idx,],shrink.DT,metric)))
   }
   #metrics <- c('r_est_maf_se','r_emp_maf_se','est_shrinkage','emp_shrinkage','ws_est_shrinkage','ws_emp_shrinkage')
-  metrics <- c('r_emp_maf_se','emp_shrinkage','ws_emp_shrinkage')
+  metrics <- c('r_emp_maf_se','emp_shrinkage','ws_emp_shrinkage','shrinkage_nog','ws_shrinkage_nog')
   for(m in metrics){
-    RES[[m]] <- doSHRINK(m)
+    n <- 'beta'
+    RES[[paste(n,m,sep='_')]] <- doSHRINKBeta(m)
+  }
+  doSHRINKZ <- function(metric){
+    b <- build_matrix_shrink_z(DT[basis.idx,],shrink.DT,metric)
+    ## add control
+    b <- rbind(b,control=rep(0,ncol(b)))
+    ## build basis
+    pc <- prcomp(b,center=TRUE,scale=FALSE)
+    list(basis=pc,proj=predict(pc,newdata=build_matrix_shrink_z(DT[proj.idx,],shrink.DT,metric)))
+  }
+  #metrics <- c('r_est_maf_se','r_emp_maf_se','est_shrinkage','emp_shrinkage','ws_est_shrinkage','ws_emp_shrinkage')
+  for(m in metrics){
+    n <- 'z'
+    RES[[paste(n,m,sep='_')]] <- doSHRINKZ(m)
   }
   return(RES)
 }
@@ -365,6 +399,65 @@ if(FALSE){
 }
 
 ## create distance metrics
+
+
+
+getPairDist <- function(S){
+  tmp.DT <- dist(S$proj) %>% as.matrix %>% melt %>% data.table
+  tmp.DT[,c('qtype','qcase','qctrl'):=tstrsplit(Var1,'_')]
+  tmp.DT[,c('mtype','mcase','mctrl'):=tstrsplit(Var2,'_')]
+  tmp.DT[,.(qtype,qcase,qctrl,mtype,mcase,mctrl,d=value)]
+  #tmp.DT <- tmp.DT[qtype!=mtype & qcase==mcase & qctrl==mctrl,][,.(qtype,mtype,qcase,qctrl,d=value)]
+  #tmp.DT[!duplicated(d),]
+}
+
+all.pd <- lapply(DT.sims,function(db){
+  ts <- createBasisAndProj(db,basis.sims,proj.sims)
+  lapply(names(ts),function(n){
+    tmp <- getPairDist(ts[[n]])
+    tmp[,metric:=n]
+    tmp
+  }) %>% rbindlist
+
+  #ctres <- lapply(ts,getPairDist) %>% rbindlist
+  #ctres[,metric:=names(ts)]
+})
+
+
+all.pd <- rbindlist(all.pd)
+all.pd[,label1:=paste(qtype,qcase,qctrl,sep='_')]
+all.pd[,label2:=paste(mtype,mcase,mctrl,sep='_')]
+if(PLOT){
+sum.all.pd <- all.pd[,list(mean.d=median(d)),by=c('label1','label2','metric')]
+
+lab.lev <- c('GWAS10_500_3000','GWAS10_2000_2000',
+'GWAS10_5000_5000','share_500_3000','share_2000_2000',
+'share_5000_5000','random_500_3000','random_2000_2000','random_5000_5000')
+
+lab.lev2 <- c('ID1','ID2',
+'ID3','S1','S2',
+'S3','R1','R2','R3')
+
+sum.all.pd[,label1:=factor(label1,levels=lab.lev)]
+sum.all.pd[,label2:=factor(label2,levels=lab.lev)]
+levels(sum.all.pd$label1)<-lab.lev2
+levels(sum.all.pd$label2)<-lab.lev2
+
+
+all.plots <- lapply(split(sum.all.pd,sum.all.pd$metric),function(dat){
+  ggplot(data = dat, aes(x=label1, y=label2, fill=mean.d)) +
+  theme(axis.text.x=element_text(angle = -90, hjust = 0,vjust=0.5)) +
+    geom_tile() + ggtitle(unique(dat$metric)) +
+    xlab("Scenario") + ylab("Scenario")
+})
+
+ppd <- plot_grid(plotlist=all.plots[c('z','beta','beta_r_emp_maf_se','beta_emp_shrinkage','beta_shrinkage_nog','beta_ws_emp_shrinkage','beta_ws_shrinkage_nog')])
+save_plot(paste(out.file.stub,'pw_dist_beta','pdf',sep="."),ppd,base_height=10,base_width=15,base_aspect=1)
+
+ppd <- plot_grid(plotlist=all.plots[c('z','beta','beta_r_emp_maf_se','z_emp_shrinkage','z_shrinkage_nog','z_ws_emp_shrinkage','z_ws_shrinkage_nog')])
+save_plot(paste(out.file.stub,'pw_dist_z','pdf',sep="."),ppd,base_height=10,base_width=15,base_aspect=1)
+}
+saveRDS(all.pd,file=paste(out.file.stub,'pw_dist','RDS',sep="."))
 
 getDist <- function(S,ref='control'){
   R <- S$basis$x[ref,]
