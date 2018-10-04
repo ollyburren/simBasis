@@ -29,7 +29,7 @@ if(!TEST){
       out_dir="/home/ob219/tmp/test_scen",
       #ldblock='77',
       #scenario_file="/home/ob219/rds/hpc-work/simBasis/support/scenarios/scenario1.yml",
-      scenario_file="/rds/project/cew54/rds-cew54-wallace-share/Projects/simBasis/scenarios//backbone_share.yml",
+      scenario_file="/rds/project/cew54/rds-cew54-wallace-share/Projects/simBasis/scenarios//jp_ld.no_share.yml",
       #scenario_file="/rds/project/cew54/rds-cew54-wallace-share/Projects/simBasis/scenarios/scenario2.yml",
       #out_dir="/home/ob219/rds/hpc-work/simBasis/simulations/",
       ld_source='jp_ld',
@@ -524,20 +524,17 @@ if(FALSE){
   SCEN.DIR <- '/rds/project/cew54/rds-cew54-wallace-share/Projects/simBasis/scenarios'
   TOTAL <- 1000
   BATCH <- 100
-  OUT_DIR <- '/home/ob219/tmp/test_scen/'
-
+  OUT_DIR <- '/home/ob219/rds/rds-cew54-wallace-share/Projects/simBasis/sims'
+  SOURCE <- "jp_ld"
   n <- TOTAL/BATCH
-
-  cmd <- sapply(list.files(path=SCEN.DIR,pattern="*.yml",full.names=TRUE),function(f){
+  cmd <- sapply(list.files(path=SCEN.DIR,pattern=paste0('^',SOURCE,".*yml$"),full.names=TRUE),function(f){
     sapply(1:n,function(i){
-      sprintf("Rscript /home/ob219/git/simBasis/R/simFullGWAS.R -s %s -o %s -n %d -p",f,OUT_DIR,BATCH)
+      sprintf("Rscript /home/ob219/git/simBasis/R/simFullGWAS.R -s %s -o %s -n %d -p -b %s",f,OUT_DIR,BATCH,SOURCE)
     })
   })
 
-  write(cmd,file="/home/ob219/git/simBasis/sh/scen.txt")
+  write(cmd,file="/home/ob219/git/simBasis/sh/scen_jp.txt")
 }
-
-
 
 ## BELOW HERE IS EXPERIMENTAL CODE FOR malhalanobis distance stuff.
 
